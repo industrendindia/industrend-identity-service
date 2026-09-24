@@ -1,0 +1,14 @@
+package in.industrend.identity.auth;
+import in.industrend.identity.web.RequestSecurity;import jakarta.servlet.http.Cookie;import jakarta.servlet.http.HttpServletRequest;import jakarta.servlet.http.HttpServletResponse;import jakarta.validation.Valid;import jakarta.validation.constraints.NotBlank;import jakarta.validation.constraints.Pattern;import java.time.Duration;import java.util.Map;import java.util.UUID;import org.springframework.beans.factory.annotation.Value;import org.springframework.http.ResponseCookie;import org.springframework.web.bind.annotation.*;
+@RestController @RequestMapping("/api/v1/auth")
+public class AuthController {
+  record OtpRequest(@NotBlank String mobile,String purpose){} record VerifyRequest(UUID challengeId,@Pattern(regexp="[0-9]{6}") String otp){}
+  private final AuthService auth;private final RequestSecurity security;private final boolean secure;
+  AuthController(AuthService auth,RequestSecurity security,@Value("${app.security.cookie-secure:true}") boolean secure){this.auth=auth;this.security=security;this.secure=secure;}
+  @PostMapping("/otp/request") public AuthService.Challenge request(@Valid @RequestBody OtpRequest body,HttpServletRequest req){if(body.purpose()!=null&&!"LOGIN".equalsIgnoreCase(body.purpose())){security.requireCustomer(req);security.requireCsrf(req);}return auth.requestOtp(body.mobile(),body.purpose(),clientIp(req));}
+  @PostMapping("/otp/verify") public AuthService.AuthResult verify(@Valid @RequestBody VerifyRequest body,HttpServletRequest req,HttpServletResponse res){var result=auth.verify(body.challengeId(),body.otp(),clientIp(req),req.getHeader("User-Agent"),(UUID)req.getAttribute("customerId"));setCookie(res,result.sessionToken(),result.expiresInSeconds());return result;}
+  @GetMapping("/session") public AuthService.AuthResult session(HttpServletRequest req){return auth.current(security.requireCustomer(req),(UUID)req.getAttribute("sessionId"));}
+  @PostMapping("/logout") public Map<String,Boolean> logout(HttpServletRequest req,HttpServletResponse res){security.requireCustomer(req);security.requireCsrf(req);auth.logout((String)req.getAttribute("sessionToken"));setCookie(res,"",0);return Map.of("loggedOut",true);}
+  private void setCookie(HttpServletResponse res,String value,long ttl){res.addHeader("Set-Cookie",ResponseCookie.from(SessionFilter.COOKIE,value).httpOnly(true).secure(secure).sameSite("Lax").path("/").maxAge(Duration.ofSeconds(ttl)).build().toString());}
+  private String clientIp(HttpServletRequest r){var f=r.getHeader("X-Forwarded-For");return f==null?r.getRemoteAddr():f.split(",")[0].trim();}
+}

@@ -1,0 +1,4 @@
+package in.industrend.identity.web;
+import org.springframework.jdbc.core.simple.JdbcClient;import org.springframework.scheduling.annotation.Scheduled;import org.springframework.stereotype.Component;
+@Component
+public class MaintenanceTasks {private final JdbcClient jdbc;MaintenanceTasks(JdbcClient jdbc){this.jdbc=jdbc;}@Scheduled(fixedDelay=3600000) public void cleanup(){jdbc.sql("delete from industrendindia.otp_challenges where created_at<clock_timestamp()-interval '1 day'").update();jdbc.sql("delete from industrendindia.customer_sessions where expires_at<clock_timestamp()-interval '7 days' or revoked_at<clock_timestamp()-interval '7 days'").update();}}

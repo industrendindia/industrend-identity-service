@@ -1,0 +1,28 @@
+server:
+  port: ${PORT:8081}
+  forward-headers-strategy: framework
+spring:
+  application.name: identity-service
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/industrend}
+    username: ${DATABASE_USER:industrend}
+    password: ${DATABASE_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:8}
+      connection-init-sql: SET search_path TO industrendindia,pg_catalog
+  flyway:
+    default-schema: industrendindia
+    schemas: industrendindia
+    create-schemas: true
+    table: flyway_identity_history
+    locations: classpath:db/migration
+  jackson.default-property-inclusion: non_null
+management.endpoints.web.exposure.include: health,info
+services:
+  config.url: ${CONFIG_SERVICE_URL:http://127.0.0.1:8082}
+  notification.url: ${NOTIFICATION_SERVICE_URL:http://127.0.0.1:8083}
+  internal-token: ${INTERNAL_SERVICE_TOKEN:dev-only-change-me}
+app.security:
+  otp-pepper: ${OTP_PEPPER:change-me-before-production}
+  cookie-secure: ${COOKIE_SECURE:true}
+  expose-mock-otp: ${EXPOSE_MOCK_OTP:false}
