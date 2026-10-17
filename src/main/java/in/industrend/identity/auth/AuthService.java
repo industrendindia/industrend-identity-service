@@ -77,6 +77,18 @@ public class AuthService {
     return createSession(customerId,ip,userAgent);
   }
 
+  @Transactional
+  public java.util.Map<String,Object> verifySeller(UUID challengeId,String otp) {
+    var row=jdbc.sql("select challenge_id,destination,purpose,otp_hash,expires_at,attempt_count,max_attempts,consumed_at from industrendindia.otp_challenges where challenge_id=:id for update")
+        .param("id",challengeId).query((rs,n)->new OtpRow(rs.getObject(1,UUID.class),rs.getString(2),rs.getString(3),rs.getString(4),rs.getTimestamp(5).toInstant(),rs.getInt(6),rs.getInt(7),rs.getTimestamp(8)==null?null:rs.getTimestamp(8).toInstant()))
+        .optional().orElseThrow(()->new IllegalArgumentException("OTP challenge was not found"));
+    if(!"SELLER_ONBOARDING".equals(row.purpose())) throw new IllegalArgumentException("OTP purpose is not valid for seller onboarding");
+    if(row.consumedAt()!=null||row.expiresAt().isBefore(Instant.now())||row.attempts()>=row.maxAttempts()) throw new IllegalArgumentException("OTP has expired or is no longer valid");
+    if(!tokens.matches(row.hash(),challengeId+":"+otp)) throw new IllegalArgumentException("Incorrect OTP");
+    jdbc.sql("update industrendindia.otp_challenges set consumed_at=clock_timestamp(),verified_at=clock_timestamp() where challenge_id=:id").param("id",challengeId).update();
+    return java.util.Map.of("verified",true,"mobile",row.destination());
+  }
+
   public AuthResult loginWithPin(String rawMobile, String pin, String ip, String userAgent) {
     validatePin(pin); var mobile=normaliseMobile(rawMobile);
     var row=jdbc.sql("select customer_id,login_pin_hash,pin_failed_attempts,pin_locked_until from industrendindia.customers where mobile_e164=:m and status='ACTIVE'")
@@ -127,5 +139,5 @@ public class AuthService {
   private void validatePin(String pin) { if(pin==null||!pin.matches("[0-9]{6}")) throw new IllegalArgumentException("Login PIN must be exactly 6 digits"); }
   private Instant toInstant(Timestamp value) { return value==null?null:value.toInstant(); }
   public static String normaliseMobile(String raw) { var d=raw==null?"":raw.replaceAll("\\D",""); if(d.startsWith("91")&&d.length()==12)d=d.substring(2); if(!d.matches("[6-9][0-9]{9}"))throw new IllegalArgumentException("Enter a valid 10-digit Indian mobile number"); return "+91"+d; }
-  private String normalisePurpose(String p) { var v=p==null?"LOGIN":p.toUpperCase(); if(!java.util.Set.of("LOGIN","PIN_RESET","MOBILE_CHANGE","EMAIL_CHANGE").contains(v))throw new IllegalArgumentException("Invalid OTP purpose"); return v; }
+  private String normalisePurpose(String p) { var v=p==null?"LOGIN":p.toUpperCase(); if(!java.util.Set.of("LOGIN","PIN_RESET","MOBILE_CHANGE","EMAIL_CHANGE","SELLER_ONBOARDING").contains(v))throw new IllegalArgumentException("Invalid OTP purpose"); return v; }
 }

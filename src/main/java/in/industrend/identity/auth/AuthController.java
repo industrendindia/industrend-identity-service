@@ -35,10 +35,15 @@ public class AuthController {
 
   @PostMapping("/otp/request")
   public AuthService.Challenge request(@Valid @RequestBody OtpRequest body,HttpServletRequest request) {
-    if(body.purpose()!=null&&!"LOGIN".equalsIgnoreCase(body.purpose())&&!"PIN_RESET".equalsIgnoreCase(body.purpose())) {
+    if(body.purpose()!=null&&!"LOGIN".equalsIgnoreCase(body.purpose())&&!"PIN_RESET".equalsIgnoreCase(body.purpose())&&!"SELLER_ONBOARDING".equalsIgnoreCase(body.purpose())) {
       security.requireCustomer(request); security.requireCsrf(request);
     }
     return auth.requestOtp(body.mobile(),body.purpose(),clientIp(request));
+  }
+
+  @PostMapping("/seller-otp/verify")
+  public Map<String,Object> verifySeller(@Valid @RequestBody VerifyRequest body,HttpServletRequest request) {
+    return auth.verifySeller(body.challengeId(),body.otp());
   }
 
   @PostMapping("/otp/verify")
