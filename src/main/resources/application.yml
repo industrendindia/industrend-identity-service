@@ -28,3 +28,7 @@ app.security:
   otp-pepper: ${OTP_PEPPER:change-me-before-production}
   cookie-secure: ${COOKIE_SECURE:true}
   expose-mock-otp: ${EXPOSE_MOCK_OTP:false}
+app.admin:
+  seed-email: ${ADMIN_SEED_EMAIL:}
+  seed-password: ${ADMIN_SEED_PASSWORD:}
+  session-ttl-seconds: ${ADMIN_SESSION_TTL_SECONDS:28800}

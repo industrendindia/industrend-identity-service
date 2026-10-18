@@ -1,0 +1,23 @@
+package in.industrend.identity.auth;
+
+import jakarta.annotation.PostConstruct;
+import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class AdminAuthService {
+  public record LoginResult(String token,String csrf,long expiresInSeconds,String displayName,String email) {}
+  private record AdminRow(UUID id,String hash,String name,String email,String status,Instant locked) {}
+  private final JdbcClient jdbc; private final SecurityTokens tokens; private final PinHasher passwords;
+  private final String seedEmail,seedPassword; private final long ttl;
+  public AdminAuthService(JdbcClient jdbc,SecurityTokens tokens,PinHasher passwords,@Value("${app.admin.seed-email:}")String email,@Value("${app.admin.seed-password:}")String password,@Value("${app.admin.session-ttl-seconds:28800}")long ttl){this.jdbc=jdbc;this.tokens=tokens;this.passwords=passwords;this.seedEmail=email;this.seedPassword=password;this.ttl=ttl;}
+  @PostConstruct void seed(){if(seedEmail.isBlank()||seedPassword.isBlank())return;var count=jdbc.sql("select count(*) from industrendindia.admin_users where lower(email)=lower(:e)").param("e",seedEmail).query(Integer.class).single();if(count==0){var id=UUID.randomUUID();jdbc.sql("insert into industrendindia.admin_users(admin_user_id,email,display_name,password_hash,mfa_required) values(:id,:e,'Marketplace Admin',:p,false)").param("id",id).param("e",seedEmail).param("p",passwords.hash(seedPassword)).update();jdbc.sql("insert into industrendindia.admin_user_roles(admin_user_id,role_key) values(:id,'MARKETPLACE_ADMIN') on conflict do nothing").param("id",id).update();}}
+  @Transactional LoginResult login(String email,String password,String ip,String userAgent){var row=jdbc.sql("select admin_user_id,password_hash,display_name,email,status,locked_until from industrendindia.admin_users where lower(email)=lower(:e)").param("e",email==null?"":email.trim()).query((rs,n)->new AdminRow(rs.getObject(1,UUID.class),rs.getString(2),rs.getString(3),rs.getString(4),rs.getString(5),rs.getTimestamp(6)==null?Instant.EPOCH:rs.getTimestamp(6).toInstant())).optional().orElseThrow(()->new IllegalArgumentException("Administrator email or password is incorrect"));if(!"ACTIVE".equals(row.status())||row.locked().isAfter(Instant.now())||!passwords.matches(row.hash(),password)){jdbc.sql("update industrendindia.admin_users set failed_attempts=failed_attempts+1,locked_until=case when failed_attempts+1>=5 then clock_timestamp()+interval '15 minutes' else locked_until end where admin_user_id=:id").param("id",row.id()).update();throw new IllegalArgumentException("Administrator email or password is incorrect");}var token=tokens.token();var csrf=tokens.token();jdbc.sql("insert into industrendindia.admin_sessions(session_id,admin_user_id,token_hash,csrf_hash,user_agent_hash,ip_created,expires_at) values(:s,:a,:t,:c,:u,cast(:ip as inet),clock_timestamp()+make_interval(secs=>:ttl))").param("s",UUID.randomUUID()).param("a",row.id()).param("t",tokens.hash(token)).param("c",tokens.hash(csrf)).param("u",tokens.hash(userAgent==null?"":userAgent)).param("ip",ip).param("ttl",ttl).update();jdbc.sql("update industrendindia.admin_users set failed_attempts=0,locked_until=null,last_login_at=clock_timestamp() where admin_user_id=:id").param("id",row.id()).update();return new LoginResult(token,csrf,ttl,row.name(),row.email());}
+  Map<String,Object> validate(String token){if(token==null||token.isBlank())throw new IllegalArgumentException("Admin authentication required");return jdbc.sql("select u.admin_user_id,u.display_name,u.email from industrendindia.admin_sessions s join industrendindia.admin_users u on u.admin_user_id=s.admin_user_id where s.token_hash=:h and s.revoked_at is null and s.expires_at>clock_timestamp() and u.status='ACTIVE'").param("h",tokens.hash(token)).query((rs,n)->Map.<String,Object>of("adminUserId",rs.getObject(1,UUID.class),"displayName",rs.getString(2),"email",rs.getString(3),"authenticated",true)).optional().orElseThrow(()->new IllegalArgumentException("Admin authentication required"));}
+  void logout(String token){if(token!=null)jdbc.sql("update industrendindia.admin_sessions set revoked_at=clock_timestamp() where token_hash=:h and revoked_at is null").param("h",tokens.hash(token)).update();}
+}
